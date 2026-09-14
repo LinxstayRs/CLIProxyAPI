@@ -1,37 +1,36 @@
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.26-alpine AS request-filter-builder
 
-WORKDIR /app
+WORKDIR /src
+COPY go.mod ./
+COPY cmd/zeabur-request-filter ./cmd/zeabur-request-filter
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/zeabur-request-filter ./cmd/zeabur-request-filter
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
+# Official multi-architecture release image; keep tag and digest in sync.
+FROM eceasy/cli-proxy-api:v7.3.15@sha256:86032129fa65496428752ec6e5c7480f07fde137160b728cd850cc65e9eaa391
 
-COPY go.mod go.sum ./
+USER root
 
-RUN go mod download
+RUN mkdir -p /CLIProxyAPI /data/auths /data/plugins
 
-COPY . .
+# Binary and example config are supplied by the release image. The small
+# deployment-specific filter rejects known abusive clients before CPA sees them.
+COPY --from=request-filter-builder /out/zeabur-request-filter /usr/local/bin/zeabur-request-filter
+COPY scripts/docker/zeabur-entrypoint.sh /usr/local/bin/zeabur-entrypoint
 
-ARG VERSION=dev
-ARG COMMIT=none
-ARG BUILD_DATE=unknown
-
-RUN CGO_ENABLED=1 GOOS=linux go build -buildvcs=false -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o ./CLIProxyAPI ./cmd/server/
-
-FROM debian:bookworm
-
-RUN apt-get update && apt-get install -y --no-install-recommends tzdata ca-certificates && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir /CLIProxyAPI
-
-COPY --from=builder ./app/CLIProxyAPI /CLIProxyAPI/CLIProxyAPI
-
-COPY config.example.yaml /CLIProxyAPI/config.example.yaml
+RUN chmod 0755 /usr/local/bin/zeabur-entrypoint /usr/local/bin/zeabur-request-filter
 
 WORKDIR /CLIProxyAPI
 
-EXPOSE 8317
+ENV TZ=Asia/Shanghai \
+    PORT=8080 \
+    CPA_DATA_DIR=/data \
+    CPA_INTERNAL_PORT=8317 \
+    CPA_BLOCKED_DOMAINS=skynexyl.com \
+    CPA_BLOCKED_REQUESTED_WITH=com.skynex.app
 
-ENV TZ=Asia/Shanghai
+EXPOSE 8080
+VOLUME ["/data"]
 
-RUN cp /usr/share/zoneinfo/${TZ} /etc/localtime && echo "${TZ}" > /etc/timezone
-
-CMD ["./CLIProxyAPI"]
+ENTRYPOINT ["/usr/local/bin/zeabur-entrypoint"]
+# The wrapper supplies the command and config path.
+CMD []
