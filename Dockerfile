@@ -1,37 +1,24 @@
-FROM golang:1.26-bookworm AS builder
+# Official multi-architecture release image; keep tag and digest in sync.
+FROM eceasy/cli-proxy-api:v7.3.3@sha256:f9abbf3fa5fed1ca5410cf207eeae6d7c3d7d1b5305397fc928d4d43d4474d15
 
-WORKDIR /app
+USER root
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /CLIProxyAPI /data/auths /data/plugins
 
-COPY go.mod go.sum ./
+# Binary and example config are supplied by the release image.
+COPY scripts/docker/zeabur-entrypoint.sh /usr/local/bin/zeabur-entrypoint
 
-RUN go mod download
-
-COPY . .
-
-ARG VERSION=dev
-ARG COMMIT=none
-ARG BUILD_DATE=unknown
-
-RUN CGO_ENABLED=1 GOOS=linux go build -buildvcs=false -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o ./CLIProxyAPI ./cmd/server/
-
-FROM debian:bookworm
-
-RUN apt-get update && apt-get install -y --no-install-recommends tzdata ca-certificates && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir /CLIProxyAPI
-
-COPY --from=builder ./app/CLIProxyAPI /CLIProxyAPI/CLIProxyAPI
-
-COPY config.example.yaml /CLIProxyAPI/config.example.yaml
+RUN chmod 0755 /usr/local/bin/zeabur-entrypoint
 
 WORKDIR /CLIProxyAPI
 
-EXPOSE 8317
+ENV TZ=Asia/Shanghai \
+    PORT=8080 \
+    CPA_DATA_DIR=/data
 
-ENV TZ=Asia/Shanghai
+EXPOSE 8080
+VOLUME ["/data"]
 
-RUN cp /usr/share/zoneinfo/${TZ} /etc/localtime && echo "${TZ}" > /etc/timezone
-
-CMD ["./CLIProxyAPI"]
+ENTRYPOINT ["/usr/local/bin/zeabur-entrypoint"]
+# The wrapper supplies the command and config path.
+CMD []
