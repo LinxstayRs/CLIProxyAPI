@@ -47,6 +47,35 @@ func TestBlockReason(t *testing.T) {
 	}
 }
 
+func TestBlockReasonNextJSProbe(t *testing.T) {
+	p := testPolicy()
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		headers map[string]string
+		want    string
+	}{
+		{name: "next action root post", method: http.MethodPost, path: "/", headers: map[string]string{"Next-Action": "x"}, want: "nextjs-probe"},
+		{name: "next request id root post", method: http.MethodPost, path: "/", headers: map[string]string{"X-Nextjs-Request-Id": "abc"}, want: "nextjs-probe"},
+		{name: "empty probe headers allowed", method: http.MethodPost, path: "/", headers: map[string]string{"Next-Action": "", "X-Nextjs-Request-Id": ""}},
+		{name: "root get allowed", method: http.MethodGet, path: "/", headers: map[string]string{"Next-Action": "x"}},
+		{name: "api post allowed", method: http.MethodPost, path: "/v1/chat/completions", headers: map[string]string{"Next-Action": "x"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			for key, value := range tt.headers {
+				req.Header.Set(key, value)
+			}
+			if got := p.blockReason(req); got != tt.want {
+				t.Fatalf("blockReason() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPrepareCPAConfigPreservesOtherSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	original := "host: \"\"\nport: 8080\napi-keys:\n  - secret\nremote-management:\n  allow-remote: true\n"
