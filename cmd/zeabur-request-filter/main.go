@@ -57,6 +57,10 @@ func main() {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if reason := p.blockReason(r); reason != "" {
 			log.Printf("blocked request: reason=%s method=%s path=%s remote=%s", reason, r.Method, r.URL.Path, r.RemoteAddr)
+			if reason == "nextjs-probe" {
+				http.NotFound(w, r)
+				return
+			}
 			writeJSONError(w, http.StatusForbidden, "request blocked by gateway policy")
 			return
 		}
@@ -135,6 +139,10 @@ func prepareCPAConfig(path string, port int) error {
 func (p policy) blockReason(r *http.Request) string {
 	if r == nil {
 		return "invalid-request"
+	}
+	if r.Method == http.MethodPost && r.URL != nil && r.URL.Path == "/" &&
+		(r.Header.Get("Next-Action") != "" || r.Header.Get("X-Nextjs-Request-Id") != "") {
+		return "nextjs-probe"
 	}
 	requestedWith := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Requested-With")))
 	if _, blocked := p.blockedRequestedWith[requestedWith]; blocked && requestedWith != "" {
